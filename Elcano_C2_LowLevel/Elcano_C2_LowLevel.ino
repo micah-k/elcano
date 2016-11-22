@@ -76,6 +76,10 @@ float HubSpeed_kmPh;
 const float  HubSpeed2kmPh = 13000000;
 const unsigned long HubAtZero = 1159448;
 
+double SpeedCyclometer_mmPs = 0; //Note: doubles on Arduinos are the same thing as floats, 4bytes, single precision
+// Speed in revolutions per second is independent of wheel size.
+//float SpeedCyclometer_revPs = 0.0;//revolutions per sec
+
 int max_rc = MAX_RC;
 int mid = MIDDLE;
 int min_rc = MIN_RC;
@@ -88,20 +92,21 @@ void ISR_TURN_rise(){
   interrupts();
 }
 /*---------------------------------------------------------------------------------------*/
-// RDR (rudder) is currently not used.
+// RDR (rudder) is currently used!
 void ISR_RDR_rise() {
-  // RDR (rudder) is not used. Instead, use this interrupt for the motor phase feedback, which gives speed.
+  unsigned long tick;
   noInterrupts();
-  unsigned long old_phase_rise = RC_rise[RC_RDR];
-  ProcessRiseOfINT(RC_RDR);
-  RC_elapsed[RC_RDR] = RC_rise[RC_RDR] - old_phase_rise;
-  // The phase frequency is proportional to wheel rotation.
-  // An e-bike hub is powered by giving it 3 phased 36 V lines
-  // The e-bike controller needs feeback from the hub.
-  // The hub supplies 3 Hall Phase sensors; each is a 5V square wave and tells how fast the wheel rotates.
-  // The square wave feedback has sone noise, which is cleaned up by an RC low pass filter
-  //  with R = 1K, C = 100 nF
-  //Serial.println("RDR");
+  tick = millis();
+  if (InterruptState != IRQ_RUNNING){
+    // Need to process 1st two interrupts before results are meaningful.
+    InterruptState++;
+  }
+  //checks to see if the time between cycles isn't impossibly short.
+  if (tick - TickTime > MinTickTime_ms){
+    OldTick = TickTime;
+    TickTime = tick;
+    ++ClickNumber;
+  }
   interrupts();
 }
 /*---------------------------------------------------------------------------------------*/
@@ -245,7 +250,9 @@ void setup()
   {
     speed_errors[i] = 0;
   }
-  //setupWheelRev(); // WheelRev4 addition
+  speedPID.SetOutputLimits(MIN_ACC_OUT, MAX_ACC_OUT); //useful if we want to change the limits on what values the output can be set to
+  speedPID.SetSampleTime(PID_CALCULATE_TIME); //useful if we want to change the compute period
+  setupWheelRev(); // WheelRev4 addition
   CalibrateTurnAngle(32, 20);
   calibrationTime_ms = millis();
         attachInterrupt(digitalPinToInterrupt(IRPT_TURN),  ISR_TURN_rise,  RISING);
@@ -958,6 +965,21 @@ static struct hist {
   // results of every interrupt
 } history;
 
+double PIDThrottleOutput; //used to tell Throttle and Brake what to do as far as acceleration
+double desiredSpeed = 2000.0; //aprox 10kph
+double oldDesiredSpeed = desiredSpeed;
+long unsigned int elapsedToDesired [10]; //stores how long it took to reach desiredSpeed, used for PID values testing.
+int indexOfElapsed = 0;
+long unsigned int startDesired;
+#define PID_CALCULATE_TIME 50
+
+double proportionalConstant = .0180;
+double integralConstant = .0137;
+double derivativeConstant = .00001;
+
+// PID setup block
+PID speedPID(&SpeedCyclometer_mmPs, &PIDThrottleOutput, &desiredSpeed, proportionalConstant, integralConstant, derivativeConstant, DIRECT);
+
 /*---------------------------------------------------------------------------------------*/
 // WheelRev is called by an interrupt.
 // This is all WAY TOO LONG for an interrupt
@@ -988,13 +1010,8 @@ void WheelRev()
 
 void setupWheelRev()
 {
-
-  //    SerialOdoOut.begin(115200); // C6 to C4
-  //    pinMode(13, OUTPUT); //led
-  //    digitalWrite(13, LOW);//turn LED off
-  //
-  pinMode(IRPT_WHEEL, INPUT);//pulls input HIGH
-  float MinTick = WHEEL_DIAMETER_MM * PI;
+ // pinMode(IRPT_WHEEL, INPUT);//pulls input HIGH
+  float MinTick = WHEEL_CIRCUM_MM;
   //    SerialMonitor.print (" MinTick = ");
   //    SerialMonitor.println (MinTick);
   MinTick *= 1000.0;
@@ -1007,7 +1024,7 @@ void setupWheelRev()
   //    SerialMonitor.print (" MIN_SPEED_mPh = ");
   //    SerialMonitor.print (MIN_SPEED_mPh);
   float MIN_SPEED_mmPs =  ((MIN_SPEED_mPh * 1000.0) / 3600.0);
-  // MIN_SPEED_mmPs = 135 mm/s
+  //    MIN_SPEED_mmPs = 135 mm/s
   //    SerialMonitor.print (" MIN_SPEED_mmPs = ");
   //    SerialMonitor.print (MIN_SPEED_mmPs);
   float MaxTick = (WHEEL_DIAMETER_MM * PI * 1000.0) / MIN_SPEED_mmPs;
@@ -1027,113 +1044,117 @@ void setupWheelRev()
   ClickNumber = 0;
   history.oldSpeed_mmPs = history.olderSpeed_mmPs = NO_DATA;
 
-  attachInterrupt (digitalPinToInterrupt(IRPT_WHEEL), WheelRev, RISING);//pin 3 on Mega
+  speedPID.SetMode(AUTOMATIC); //initializes PID controller and allows it to run Compute
+  
+  attachInterrupt (digitalPinToInterrupt(IRPT_WHEEL), ISR_RDR_rise, RISING);//pin 3 on Mega
   //    SerialMonitor.print("TickTime: ");
   //    SerialMonitor.print(TickTime);
   //    SerialMonitor.print(" OldTick: ");
   //    SerialMonitor.println(OldTick);
 
   //    SerialMonitor.println("WheelRev setup complete");
-
 }
 /*---------------------------------------------------------------------------------------*/
-void ComputeSpeed( struct hist *data)
-{
-  if (data->InterruptState == IRQ_NONE || data->InterruptState == IRQ_FIRST)
+void computeSpeed(struct hist *data){
+  //cyclometer has only done 1 or 2 revolutions
+  
+  //normal procedures begin here
+  unsigned long WheelRev_ms = TickTime - OldTick;
+  float SpeedCyclometer_revPs = 0.0;//revolutions per sec
+
+  if (InterruptState == IRQ_NONE || InterruptState == IRQ_FIRST)
   { // No data
     SpeedCyclometer_mmPs = 0;
     SpeedCyclometer_revPs = 0;
+//    Serial.print("No compute  ");
+    //Serial.println(*speedCyclo);
     return;
   }
-  float Circum_mm = (WHEEL_DIAMETER_MM * PI);
-  long WheelRev_ms = data->TickTime_ms - data->OldTick_ms;
-  if (data->InterruptState >= IRQ_SECOND && data->oldSpeed_mmPs == NO_DATA && WheelRev_ms > 0)
+  
+  if (InterruptState == IRQ_SECOND)
   { //  first computed speed
     SpeedCyclometer_revPs = 1000.0 / WheelRev_ms;
     SpeedCyclometer_mmPs  =
-      data->oldSpeed_mmPs = Circum_mm * SpeedCyclometer_revPs;
-    data->oldTime_ms = data->TickTime_ms;  // time stamp for oldSpeed_mmPs
-    data->oldClickNumber = data->nowClickNumber;
+      data->oldSpeed_mmPs = data->olderSpeed_mmPs = WHEEL_CIRCUM_MM * SpeedCyclometer_revPs;
+    data->oldTime_ms = OldTick;
+    data->nowTime_ms = TickTime;  // time stamp for oldSpeed_mmPs
+    data->oldClickNumber = data->nowClickNumber = ClickNumber;
+//    Serial.print("First compute  ");
+//    Serial.println(SpeedCyclometer_mmPs);
     return;
   }
-  if (data->InterruptState == IRQ_RUNNING && data->olderSpeed_mmPs == NO_DATA && WheelRev_ms > 0
-      && data->nowClickNumber != data->oldClickNumber)
+
+  if (InterruptState == IRQ_RUNNING)
   { //  new data for second computed speed
-    data->olderSpeed_mmPs = data->oldSpeed_mmPs;
-    data->olderTime_ms = data->oldTime_ms;
-
-    SpeedCyclometer_revPs = 1000.0 / WheelRev_ms;
-    SpeedCyclometer_mmPs  =
-      data->oldSpeed_mmPs = Circum_mm * SpeedCyclometer_revPs;
-    data->oldTime_ms = data->TickTime_ms;  // time stamp for oldSpeed_mmPs
-    data->oldClickNumber = data->nowClickNumber;
-    return;
-  }
-  if (data->InterruptState == IRQ_RUNNING && data->olderSpeed_mmPs != NO_DATA && WheelRev_ms > 0)
-  { // Normal situation after initialization
-    if (data->nowClickNumber == data->oldClickNumber)
-    { // No new information; extrapolate the speed if decelerating; else keep old speed
-      if (data->olderSpeed_mmPs > data->oldSpeed_mmPs)
-      { // decelerrating
-        float deceleration = (float) (data->olderSpeed_mmPs - data->oldSpeed_mmPs) /
-                             (data->oldTime_ms - data->olderTime_ms);
-        SpeedCyclometer_mmPs = data->oldSpeed_mmPs - deceleration *
-                               (data->nowTime_ms - data->oldTime_ms);
-        if (SpeedCyclometer_mmPs < 0)
-          SpeedCyclometer_mmPs = 0;
-        SpeedCyclometer_revPs = SpeedCyclometer_mmPs / Circum_mm;
-      }
-      else
-      { // accelerating; should get new data soon
-
-      }
-      if (data->nowTime_ms - data->oldTime_ms > MaxTickTime_ms)
+    
+    if(TickTime == data->nowTime_ms)
+    {//no new data
+        //check to see if stopped first
+      unsigned long timeStamp = millis();
+      if (timeStamp - data->nowTime_ms > MaxTickTime_ms)
       { // too long without getting a tick
-        SpeedCyclometer_mmPs = 0;
-        SpeedCyclometer_revPs = 0;
-        if (data->nowTime_ms - data->oldTime_ms > 2 * MaxTickTime_ms)
-        {
+         SpeedCyclometer_mmPs = 0;
+         SpeedCyclometer_revPs = 0;
+         if (timeStamp - data->nowTime_ms > 2 * MaxTickTime_ms)
+         {
           InterruptState = IRQ_FIRST;  //  Invalidate old data
           data->oldSpeed_mmPs = NO_DATA;
           data->olderSpeed_mmPs = NO_DATA;
-        }
-      }
-    }
-    else
-    { // moving; use new data to compute speed
-      data->olderSpeed_mmPs = data->oldSpeed_mmPs;
-      data->olderTime_ms = data->oldTime_ms;
+         }
+         return;
+       }
+        
+       if (data->oldSpeed_mmPs > SpeedCyclometer_mmPs)
+       { // decelerrating, extrapolate new speed using a linear model
+          float deceleration = (float) (data->oldSpeed_mmPs - SpeedCyclometer_mmPs) / (float) (timeStamp - data->nowTime_ms);
 
-      SpeedCyclometer_revPs = 1000.0 / WheelRev_ms;
-      SpeedCyclometer_mmPs  =
-        data->oldSpeed_mmPs = Circum_mm * SpeedCyclometer_revPs;
-      data->oldTime_ms = data->TickTime_ms;  // time stamp for oldSpeed_mmPs
-      data->oldClickNumber = data->nowClickNumber;
+          SpeedCyclometer_mmPs = data->oldSpeed_mmPs - deceleration * (timeStamp - data->nowTime_ms);
+          if (SpeedCyclometer_mmPs < 0)
+            SpeedCyclometer_mmPs = 0;
+          SpeedCyclometer_revPs = SpeedCyclometer_mmPs / WHEEL_CIRCUM_MM;
+       }
+       else
+       { // accelerating; should get new data soon
+
+       }
+       return;
     }
+
+    //update time block
+    data->olderTime_ms = data->oldTime_ms;
+    data->oldTime_ms = data->nowTime_ms;
+    data->nowTime_ms = TickTime;
+    data->oldClickNumber = data->nowClickNumber;
+    data->nowClickNumber = ClickNumber;
+
+    //update speed block
+    data->olderSpeed_mmPs = data->oldSpeed_mmPs;
+    data->oldSpeed_mmPs = SpeedCyclometer_mmPs;
+    SpeedCyclometer_revPs = 1000.0 / WheelRev_ms;
+    SpeedCyclometer_mmPs  = WHEEL_CIRCUM_MM * SpeedCyclometer_revPs;
+    
+//    Serial.print("Nominal compute  ");
+//    Serial.println(SpeedCyclometer_mmPs);
+    return;
   }
-  if (data->nowTime_ms - data->TickTime_ms > WheelRev_ms)
-  { // at this speed, should have already gotten a tick?; If so, we are slowing.
-    float SpeedSlowing_revPs = 1000.0 / (data->nowTime_ms - data->TickTime_ms);
-    long SpeedSlowing_mmPs  = Circum_mm * SpeedCyclometer_revPs;
-    SpeedCyclometer_revPs = min(SpeedCyclometer_revPs, SpeedSlowing_revPs);
-    SpeedCyclometer_mmPs  = min(SpeedCyclometer_mmPs, SpeedSlowing_mmPs);
-  }
-  return;
+  
 }
+
 /*---------------------------------------------------------------------------------------*/
-void PrintSpeed( struct hist *data)
+//function updates what should always be updated in every loop of ComputeSpeed
+void ComputeSpeedHelper(struct hist *data){
+    data->oldTime_ms = data->nowTime_ms;
+    data->nowTime_ms = TickTime;
+    data->oldClickNumber = data->nowClickNumber;
+    data->nowClickNumber = ClickNumber;
+}
+
+/*---------------------------------------------------------------------------------------*/
+void PrintSpeed()
 {
+  Serial.print(desiredSpeed); Serial.print("\t");
   Serial.print(SpeedCyclometer_mmPs); Serial.print("\t");
-  Serial.print(data->InterruptState); Serial.print("\t");
-  Serial.print(data->oldSpeed_mmPs); Serial.print("\t");
-  Serial.print(data->olderSpeed_mmPs); Serial.print("\t");
-  Serial.print(data->oldClickNumber); Serial.print("\t");
-  Serial.print(data->nowClickNumber); Serial.print("\t");
-  Serial.print(data->olderTime_ms); Serial.print("\t");
-  Serial.print(data->oldTime_ms); Serial.print("\t");
-  Serial.print(data->nowTime_ms); Serial.print("\t");
-  Serial.print(data->TickTime_ms); Serial.print("\t");
-  Serial.println(data->OldTick_ms);
+//  Serial.println();
 }
 /*---------------------------------------------------------------------------------------*/
 void show_speed(SerialData *Results)
@@ -1271,95 +1292,25 @@ int TurnAngle_degx10()
   return new_turn_degx10;
 }
 /*---------------------------------------------------------------------------------------*/
-void newThrottlePID(){
+void ThrottlePID(){
   
-}
+  speedPID.Compute();
 
-void Throttle_PID(long error_speed_mmPs)
+//  Serial.print("Throttle out value ");
+  Serial.print(PIDThrottleOutput);
+  Serial.print("\r\n");
+  int throttleControl = (int)PIDThrottleOutput;
+  moveVehicle(throttleControl);
 
-/* Use throttle and brakes to keep vehicle at a desired speed.
- * error_speed_mmPs = Desired speed in millimeters per second
-   A PID controller uses the error in the set point to increase or decrease the juice.
-   P = proportional; change based on present error
-   I = integra;  change based on recent sum of errors
-   D = derivative: change based on how error is changing.
-   The controller needs to avoid problems of being too sluggish or too skittery.
-   A sluggish control (overdamped) takes too long to reach the set-point.
-   A skitterish control (underdamped) can overshoot, then undershoot, producing
-   oscillations and jerky motion.
-   Getting the right control is a matter of tuning right parts of P, I, and D,
-   which is something of a black art.
-   For more information, search for:
-   VanDoren Proportional Integral Derivative Control
-*/
-{
-  static int  throttle_control = MIN_ACC_OUT;
-  static int  brake_control = MAX_BRAKE_OUT;
-  static int error_index = 0;
-  int i;
-  static long error_sum = 0;
-  long mean_speed_error = 0;
-  long extrapolated_error = 0;
-  long PID_error;
-  // @ToDo: PID parameters are different per trike, and should be moved to Settings.h.
-  const float P_tune = 0.4;
-  const float I_tune = 0.5;
-  const float D_tune = 0.1;
-  const long speed_tolerance_mmPs = 75;  // about 0.2 mph
-  // setting the max_error affacts control: anything bigger gets maximum response
-  const long max_error_mmPs = 2500; // about 5.6 mph
-
-  //lets look through this
-  error_sum -= speed_errors[error_index];
-  speed_errors[error_index] = error_speed_mmPs;
-  error_sum += error_speed_mmPs;
-  mean_speed_error = error_sum / ERROR_HISTORY;
-  i = (error_index - 1) % ERROR_HISTORY;
-  if (++error_index >= ERROR_HISTORY)
-    error_index = 0;
-  extrapolated_error = 2 * error_speed_mmPs - speed_errors[i];
-  PID_error = P_tune * error_speed_mmPs
-              + I_tune * mean_speed_error
-              + D_tune * extrapolated_error;
-  if (PID_error > speed_tolerance_mmPs)
-  { // too fast
-    long throttle_decrease = (MAX_ACC_OUT - MIN_ACC_OUT) * PID_error / max_error_mmPs;
-    throttle_control -= throttle_decrease;
-    if (throttle_control < MIN_ACC_OUT)
-      throttle_control = MIN_ACC_OUT;
-    moveVehicle(throttle_control);
-
-    long brake_increase = (MAX_BRAKE_OUT - MIN_BRAKE_OUT) * PID_error / max_error_mmPs;
-    // MIN_BRAKE_OUT = 180; MAX_BRAKE_OUT = 250;
-    brake_control -= brake_increase;
-    if (brake_control > MAX_BRAKE_OUT)
-      brake_control = MAX_BRAKE_OUT;
-    brake(brake_control);
+  if(PIDThrottleOutput == MIN_ACC_OUT){
+    //apply brakes
+    //brake(MAX_BRAKE_OUT);
   }
-  else if (PID_error < speed_tolerance_mmPs)
-  { // too slow
-    long throttle_increase = (MAX_ACC_OUT - MIN_ACC_OUT) * PID_error / max_error_mmPs;
-    throttle_control += throttle_increase;
-    if (throttle_control > MAX_ACC_OUT)
-      throttle_control = MAX_ACC_OUT;
-    moveVehicle(throttle_control);
-
-    // release brakes
-    long brake_decrease = (MAX_BRAKE_OUT - MIN_BRAKE_OUT) * PID_error / max_error_mmPs;
-    // MIN_BRAKE_OUT = 180; MAX_BRAKE_OUT = 250;
-    brake_control += brake_decrease;
-    if (brake_control < MIN_BRAKE_OUT)
-      brake_control = MIN_BRAKE_OUT;
-    brake(brake_control);
+  else{
+    //brake(MIN_BRAKE_OUT);
   }
-  // else maintain current speed
-  //  Serial.print("\tThrottle Brake \t");  // csv for spreadsheet
-  //  Serial.print(throttle_control);
-  //  Serial.print("\t");
-  //  Serial.print(brake_control);
-  //  Serial.print("\t");
-  //  Serial.print(drive_speed_mmPs);  Serial.print("\t");
-  //  Serial.println(sensor_speed_mmPs);
+  
+  return;
 }
 
 /*---------------------------------------------------------------------------------------*/

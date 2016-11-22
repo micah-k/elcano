@@ -4,7 +4,10 @@
 #include <Servo.h>
 Servo STEER_SERVO;
 
-
+/* Plan for getting accurate measure of time to approach desired speed
+ * 
+ * 
+ */
 
 #define MEG 1000000
 #define MAX_SPEED_KPH 50
@@ -53,16 +56,25 @@ static struct hist {
 } history;
 
 
-double PIDThrottleOutput; //used to tell Throttle and Brake what to do as far as acceleration
+double PIDThrottleOutput; //used to tell Throttle what to do as far as acceleration
+double PIDBrakeOutput; //used to tell Brake what to do as far as acceleration
 double desiredSpeed = 2000.0; //aprox 10kph
+double oldDesiredSpeed = desiredSpeed;
+long unsigned int elapsedToDesired [10]; //stores how long it took to reach desiredSpeed, used for PID values testing.
+int indexOfElapsed = 0;
+long unsigned int startDesired;
 #define PID_CALCULATE_TIME 50
 
-double proportionalConstant = .0180;
-double integralConstant = .0137;
-double derivativeConstant = .00001;
+double pConstThrottle = .0180;
+double iConstThrottle = .0137;
+double dConstThrottle = .00001;
+double pConstBrake = .0180;
+double iConstBrake = .0137;
+double dConstBrake = .00001;
 
 // PID setup block
-PID speedPID(&SpeedCyclometer_mmPs, &PIDThrottleOutput, &desiredSpeed, proportionalConstant, integralConstant, derivativeConstant, DIRECT);
+PID speedPID(&SpeedCyclometer_mmPs, &PIDThrottleOutput, &desiredSpeed, pConstThrottle, iConstThrottle, dConstThrottle, DIRECT);
+PID brakePID(&SpeedCyclometer_mmPs, &PIDBrakeOutput, &desiredSpeed, pConstBrake, iConstBrake, dConstBrake, DIRECT);
 
 
 
@@ -74,6 +86,7 @@ void setup(){
   speedPID.SetOutputLimits(MIN_ACC_OUT, MAX_ACC_OUT); //useful if we want to change the limits on what values the output can be set to
   speedPID.SetSampleTime(PID_CALCULATE_TIME); //useful if we want to change the compute period
   setupWheelRev();
+  startDesired = millis();
   //attachInterrupt(digitalPinToInterrupt(IRPT_RDR), ISR_RDR_rise, RISING);
   STEER_SERVO.attach(STEER_OUT_PIN);
   STEER_SERVO.writeMicroseconds(STRAIGHT_TURN_OUT);
@@ -90,6 +103,21 @@ void loop(){
   }
   computeSpeed(&history);
   PrintSpeed(history);
+  if(abs(desiredSpeed - SpeedCyclometer_mmPs) <= desiredSpeed*0.05){
+    //current speed has approached desired speed
+    //now:   send current time - start time to data array, and move index
+    elapsedToDesired[indexOfElapsed] = millis() - startDesired;
+    //print out array or this value so we can get the data
+    Serial.print("Time taken to reach desired speed: "); Serial.println(elapsedToDesired[indexOfElapsed]);
+    indexOfElapsed = (indexOfElapsed + 1) % 10; //may need to be fixed to stay within buffer
+
+    if(indexOfElapsed == 0) for(int i = 0; i < 10; i++) Serial.println(elapsedToDesired[i]);
+  }
+   
+  if(desiredSpeed != oldDesiredSpeed){
+    //reset timer
+    startDesired = millis();
+  }
   ThrottlePID();
 //  Serial.print("Int State ");
 //  Serial.println(InterruptState);
@@ -108,13 +136,13 @@ void ThrottlePID(){
   int throttleControl = (int)PIDThrottleOutput;
   moveVehicle(throttleControl);
 
-  if(PIDThrottleOutput == MIN_ACC_OUT){
-    //apply brakes
-    //brake(MAX_BRAKE_OUT);
-  }
-  else{
-    //brake(MIN_BRAKE_OUT);
-  }
+//  if(PIDThrottleOutput == MIN_ACC_OUT){
+//    //apply brakes
+//    //brake(MAX_BRAKE_OUT);
+//  }
+//  else{
+//    //brake(MIN_BRAKE_OUT);
+//  }
   
   return;
 }
