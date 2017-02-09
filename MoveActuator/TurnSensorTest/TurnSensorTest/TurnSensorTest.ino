@@ -54,6 +54,7 @@ const int HardRight = RIGHT_TURN_OUT;
 
 long SteerPosition = Straight;
 int SteerIncrement = 10;
+long LastSteer = SteerPosition;
 
 void setup(){
   Serial.begin(9600);
@@ -62,8 +63,6 @@ void setup(){
   moveVehicle(MIN_ACC_OUT);
   STEER_SERVO.attach(STEER_OUT_PIN);
   calibrateSensors();
-  
-  STEER_SERVO.writeMicroseconds(STRAIGHT_TURN_OUT);
 }
 
 void loop(){
@@ -86,8 +85,8 @@ void loop(){
   {
     Serial.println("Hard Angle");
     SteerIncrement = -SteerIncrement;
+    moveSteer(SteerPosition);
   }
-  moveSteer(SteerPosition);
   PrintAngle();
 }
 
@@ -99,14 +98,17 @@ void PrintSpeed(){
 */
 
 void PrintAngle(){
-  long left = analogRead(A2);               //Steer
+  long left = analogRead(A2);
   long right = analogRead(A3);
 
   long left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
   long right_wms = map(right, rightsenseleft, rightsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
   
+  Serial.print(LastSteer); Serial.print("\t");
   Serial.print(left_wms); Serial.print("\t");
   Serial.print(right_wms); Serial.print("\t");
+  Serial.print(left); Serial.print("\t");
+  Serial.print(right); Serial.print("\t");
   Serial.println();
 }
 
@@ -353,6 +355,6 @@ void DAC_Write(int address, int value)
 
 void moveSteer(int i)
 {
-  Serial.print(SteerPosition); Serial.print("\t");
+  LastSteer = i;
   STEER_SERVO.writeMicroseconds(i);
 }

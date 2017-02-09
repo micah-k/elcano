@@ -65,9 +65,9 @@ double throttleP = .0175;
 double throttleI = .0141;
 double throttleD = .00001;
 
-double steeringP = .0175;
-double steeringI = .0141;
-double steeringD = .00001;
+double steeringP = 1;
+double steeringI = 0.01;
+double steeringD = 0.00001;
 
 // PID setup block
 PID speedPID(&SpeedCyclometer_mmPs, &PIDThrottleOutput, &desiredSpeed, throttleP, throttleI, throttleD, DIRECT);
@@ -303,8 +303,9 @@ void computeAngle(){
   int left = analogRead(A2);               //Steer
   int right = analogRead(A3);
 
-  int left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
+//  int left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT); // Left sensor spikes outside of calibrated range between setup() and loop(); temporarily disregard data
   int right_wms = map(right, rightsenseleft, rightsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
+  int left_wms = right_wms;
   
   //Placeholder
   SteerAngle_wms = (double)((left_wms+right_wms)/2);  
