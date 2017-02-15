@@ -66,7 +66,7 @@ double throttleI = .0141;
 double throttleD = .00001;
 
 double steeringP = 1;
-double steeringI = 0.01;
+double steeringI = 0.0001;
 double steeringD = 0.00001;
 
 // PID setup block
@@ -300,8 +300,8 @@ void computeSpeed(struct hist *data){
 */
 
 void computeAngle(){
-  int left = analogRead(A2);               //Steer
-  int right = analogRead(A3);
+  int left = analogRead(A2) - analogRead(A6);
+  int right = analogRead(A3) - analogRead(A7);
 
 //  int left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT); // Left sensor spikes outside of calibrated range between setup() and loop(); temporarily disregard data
   int right_wms = map(right, rightsenseleft, rightsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
@@ -315,16 +315,16 @@ void calibrateSensors(){
   
   STEER_SERVO.writeMicroseconds(LEFT_TURN_OUT); //Calibrate angle sensors for left turn
   delay(4000);
-  leftsenseleft = analogRead(A2);
-  rightsenseleft = analogRead(A3);
+  leftsenseleft = analogRead(A2) - analogRead(A6);
+  rightsenseleft = analogRead(A3) - analogRead(A7);
   Serial.print("Left turn sensor readings: ");
   Serial.print(leftsenseleft);
   Serial.println(rightsenseleft);
   
   STEER_SERVO.writeMicroseconds(RIGHT_TURN_OUT); //Calibrate angle sensors for right turn
   delay(4000);
-  leftsenseright = analogRead(A2);
-  rightsenseright = analogRead(A3);
+  leftsenseright = analogRead(A2) - analogRead(A6);
+  rightsenseright = analogRead(A3) - analogRead(A7);
   Serial.print("Right turn sensor readings: ");
   Serial.print(leftsenseright);
   Serial.println(rightsenseright);
@@ -334,7 +334,7 @@ void calibrateSensors(){
 
 void moveVehicle(int acc)
 {
-  /* Observed behavior on ElCano #1 E-bike no load (May 10, 2013, TCF)
+  /* Observed behavior on Elcano #1 E-bike no load (May 10, 2013, TCF)
     0.831 V at rest 52 counts
     1.20 V: nothing 75
     1.27 V: just starting 79

@@ -1,83 +1,39 @@
 #include <Settings.h>
 #include <SPI.h>
 
-#define INPUT_LOW 1000
-#define INPUT_HIGH 2000
-#define LEFTS_LOW 108
-#define LEFTS_HIGH 131
-#define RIGHTS_LOW 134
-#define RIGHTS_HIGH 159
-
-#define INVALID_DATA 0L
-
-#define STEER_IN_PIN 2
-
-#define ProcessFallOfINT()  RC_elapsed=(micros()-RC_rise)
-#define ProcessRiseOfINT() RC_rise=micros()
-
-volatile unsigned long RC_rise;
-volatile unsigned long RC_elapsed;
-volatile bool RC_Done;
-
-void ISR_RDR_rise(){
-  noInterrupts();
-  ProcessRiseOfINT();
-  digitalWrite(6, HIGH);
-  attachInterrupt(digitalPinToInterrupt(STEER_IN_PIN), ISR_RDR_fall, FALLING);
-  interrupts();
-}
-
-void ISR_RDR_fall(){
-  noInterrupts();
-  ProcessFallOfINT();
-  RC_Done = 1;
-  digitalWrite(6, LOW);
-  attachInterrupt(digitalPinToInterrupt(STEER_IN_PIN), ISR_RDR_rise, RISING);
-  interrupts();
-}
-
-int input = 1500;
-int leftgoal, rightgoal;
-float leftS, rightS;
-const float maxstep = 0.5158;
 
 // Select IC 3 DAC (channels C and D)
 #define SelectCD 49 
 // Select IC 2 DAC (channels A and B)
 #define SelectAB 53
 
+#define HardLeft 255
+#define HardRight 0
+
+int SteerPosition = 0;
+int SteerIncrement = 1;
+
 void setup() {
   Serial.begin(9600);
   SPI.begin(); 
-  attachInterrupt(digitalPinToInterrupt(STEER_IN_PIN),  ISR_RDR_rise,  RISING);
-  RC_rise = INVALID_DATA;
-  RC_elapsed = INVALID_DATA;
-  RC_Done = 0;
-  
   Serial.println("Setup");
 }
 
 void loop() {
-  Serial.print(RC_elapsed); Serial.print("\t");
-  if(input != RC_elapsed)
+  
+  SteerPosition += SteerIncrement;
+  if (SteerPosition >= HardLeft || SteerPosition <= HardRight)
   {
-    input = RC_elapsed > INPUT_HIGH ? INPUT_HIGH : RC_elapsed;
-    input = input < INPUT_LOW ? INPUT_LOW : input;    
-  
-    leftgoal = map(input, INPUT_LOW, INPUT_HIGH, LEFTS_LOW, LEFTS_HIGH);
-    rightgoal = map(input, INPUT_LOW, INPUT_HIGH, RIGHTS_LOW, RIGHTS_HIGH);
+    SteerIncrement = -SteerIncrement;
   }
-
-  leftS += leftS < leftgoal ? min(leftgoal - leftS, maxstep) : -min(leftS - leftgoal, maxstep);
-  rightS += rightS < rightgoal ? min(rightgoal - rightS, maxstep) : -min(rightS - rightgoal, maxstep);
-
-  DAC_Write(0, (int)leftS);
-  DAC_Write(1, (int)rightS);
   
-  Serial.print(input); Serial.print("\t");
-  Serial.print(leftS); Serial.print("\t");
-  Serial.print(rightS); Serial.print("\t");
-  Serial.println();
+  DAC_Write(0, SteerPosition);
+  DAC_Write(1, SteerPosition);
+  DAC_Write(2, SteerPosition);
+  DAC_Write(3, SteerPosition);
+  
+  Serial.println(SteerPosition);
+  delay(100);
 }
 
 /* DAC_Write applies value to address, producing an analog voltage.
