@@ -3,10 +3,10 @@
 
 #define INPUT_LOW 1000
 #define INPUT_HIGH 2000
-#define LEFTS_LOW 108
-#define LEFTS_HIGH 131
-#define RIGHTS_LOW 134
-#define RIGHTS_HIGH 159
+#define LEFTS_LOW 55
+#define LEFTS_HIGH 255
+#define RIGHTS_LOW 55
+#define RIGHTS_HIGH 255
 
 #define INVALID_DATA 0L
 
@@ -39,7 +39,7 @@ void ISR_RDR_fall(){
 int input = 1500;
 int leftgoal, rightgoal;
 float leftS, rightS;
-const float maxstep = 0.5158;
+const float maxstep = 5.5158;
 
 // Select IC 3 DAC (channels C and D)
 #define SelectCD 49 

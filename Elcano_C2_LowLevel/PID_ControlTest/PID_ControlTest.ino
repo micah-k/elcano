@@ -65,9 +65,9 @@ double throttleP = .0175;
 double throttleI = .0141;
 double throttleD = .00001;
 
-double steeringP = 1;
-double steeringI = 0.0001;
-double steeringD = 0.00001;
+double steeringP = 1.5; //= 2.5;
+double steeringI = 1; //= 2;
+double steeringD = .005; //= .05;
 
 // PID setup block
 PID speedPID(&SpeedCyclometer_mmPs, &PIDThrottleOutput, &desiredSpeed, throttleP, throttleI, throttleD, DIRECT);
@@ -94,7 +94,7 @@ void loop(){
   if (Serial.available() > 0) {
     // get incoming byte:
     desiredAngle = Serial.parseInt();
-    Serial.println(desiredAngle);
+    Serial.print(desiredAngle);
   }
   computeAngle();
   PrintAngle();
@@ -129,8 +129,9 @@ void ThrottlePID(){
 
 void SteeringPID(){
   if(steerPID.Compute()){
-    Serial.print("Steering out value ");
-    Serial.println(PIDSteeringOutput);
+    //Serial.print("Desired value ");
+    Serial.print(desiredAngle);
+    Serial.print("\t");
     int steeringControl = (int)PIDSteeringOutput;
 
     //apply control value to vehicle
@@ -152,7 +153,7 @@ void PrintAngle(){
   Serial.print(SteerAngle_wms); Serial.print("\t");
   Serial.print(analogRead(A2)); Serial.print("\t");
   Serial.print(analogRead(A3)); Serial.print("\t");
-  Serial.println();
+//  Serial.println();
 }
 
 
@@ -300,12 +301,12 @@ void computeSpeed(struct hist *data){
 */
 
 void computeAngle(){
-  int left = analogRead(A2) - analogRead(A6);
-  int right = analogRead(A3) - analogRead(A7);
+  int left = analogRead(A2);
+  int right = analogRead(A3);
 
-//  int left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT); // Left sensor spikes outside of calibrated range between setup() and loop(); temporarily disregard data
+  int left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT); // Left sensor spikes outside of calibrated range between setup() and loop(); temporarily disregard data
   int right_wms = map(right, rightsenseleft, rightsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
-  int left_wms = right_wms;
+//  int left_wms = right_wms;
   
   //Placeholder
   SteerAngle_wms = (double)((left_wms+right_wms)/2);  
@@ -315,16 +316,16 @@ void calibrateSensors(){
   
   STEER_SERVO.writeMicroseconds(LEFT_TURN_OUT); //Calibrate angle sensors for left turn
   delay(4000);
-  leftsenseleft = analogRead(A2) - analogRead(A6);
-  rightsenseleft = analogRead(A3) - analogRead(A7);
+  leftsenseleft = analogRead(A2);
+  rightsenseleft = analogRead(A3);
   Serial.print("Left turn sensor readings: ");
   Serial.print(leftsenseleft);
   Serial.println(rightsenseleft);
   
   STEER_SERVO.writeMicroseconds(RIGHT_TURN_OUT); //Calibrate angle sensors for right turn
   delay(4000);
-  leftsenseright = analogRead(A2) - analogRead(A6);
-  rightsenseright = analogRead(A3) - analogRead(A7);
+  leftsenseright = analogRead(A2);
+  rightsenseright = analogRead(A3);
   Serial.print("Right turn sensor readings: ");
   Serial.print(leftsenseright);
   Serial.println(rightsenseright);
@@ -411,7 +412,8 @@ void DAC_Write(int address, int value)
 
 void moveSteer(int i)
 {
-  Serial.print ("Steer "); Serial.print(i);
-  Serial.print (" on ");   Serial.println (STEER_OUT_PIN);
+  //Serial.print ("Steer "); Serial.print(i);
+  //Serial.print (" on ");   Serial.println (STEER_OUT_PIN);
+  Serial.println(i);
   STEER_SERVO.writeMicroseconds(i);
 }

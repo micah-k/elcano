@@ -160,6 +160,7 @@ const int CruiseThrottle = 15;  // Position of throttle commanded by AI
 #define FALSE 0
 #endif
 
+Servo STEER_SERVO;
 
 // Values to send over DAC
 const int FullThrottle =  MAX_ACC_OUT;   // 3.63 V
@@ -229,16 +230,36 @@ void setup()
   for (int channel = 0; channel < 4; channel++)
       DAC_Write (channel, 0);   // reset did not clear previous states
  
+<<<<<<< HEAD
+    pinMode(BRAKE_OUT_PIN, OUTPUT);
+    STEER_SERVO.attach(STEER_OUT_PIN);
+
+#ifdef BRAKE_RAMP
+    moveBrake(BrakePosition);   // release brake
+#endif  // BRAKE_RAMP
+#ifdef STEER_RAMP
+    moveSteer(SteerPosition);
+#endif  // Steer_RAMP
+#ifdef MOTOR_RAMP
+    moveVehicle(MinimumThrottle); 
+#endif  // MOTOR_RAMP
+
+//    Serial.println("Initialized");
+//    Serial.print("Left\t");   
+//    Serial.print("Right\t");
+//    Serial.println("Time");   
+=======
   pinMode(BRAKE_OUT_PIN, OUTPUT);
   STEER_SERVO.attach(STEER_OUT_PIN);
 
   moveBrake(BrakePosition);   // release brake
-  moveVehicle(MinimumThrottle);
-  calibrateSensors();
+  moveSteer(SteerPosition);
+  moveVehicle(MinimumThrottle); 
   Serial.println("Initialized");
   Serial.print("Left\t");   
   Serial.print("Right\t");
   Serial.println("Time");   
+>>>>>>> steerPID
 }
 /*---------------------------------------------------------------------------------------*/
 void loop()
@@ -293,9 +314,15 @@ void moveBrake(int i)
 /*---------------------------------------------------------------------------------------*/
 void moveSteer(int i)
 {
+<<<<<<< HEAD
+     Serial.print ("Steer "); Serial.print(i);
+     Serial.print (" on ");   Serial.print (STEER_OUT_PIN); Serial.print("\t");
+     STEER_SERVO.writeMicroseconds(i);
+=======
   Serial.print ("Steer "); Serial.print(i);
   Serial.print (" on ");   Serial.print (STEER_OUT_PIN); Serial.print("\t");
   STEER_SERVO.writeMicroseconds(i);
+>>>>>>> steerPID
 }
 /*---------------------------------------------------------------------------------------*/
 void outputToSerial()
@@ -309,15 +336,10 @@ void outputToSerial()
 #endif  // BRAKE_RAMP
 
 #ifdef STEER_RAMP 
-    int left = analogRead(A2);               //Steer
-    int right = analogRead(A3);
-    long left_wms = map(left, leftsenseleft, leftsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
-    long right_wms = map(right, rightsenseleft, rightsenseright, LEFT_TURN_OUT, RIGHT_TURN_OUT);
-  
-    Serial.print(left_wms); Serial.print("\t");
-    Serial.print(right_wms); Serial.print("\t");
-    Serial.print(left);   Serial.print("\t"); //Left turn sensor
-    Serial.print(right);  Serial.print("\t"); //Right turn sensor
+     int left = analogRead(A2);               //Steer
+     int right = analogRead(A3);
+     Serial.print(left);   Serial.print("\t"); //Left turn sensor
+     Serial.print(right);  Serial.print("\t"); //Right turn sensor
 #endif //STEER_RAMP
   Serial.println(micros()); //Current time and end line
 }
@@ -406,21 +428,3 @@ This is as documented; with gain of 2, maximum output is 2 * Vref
 }
 /*---------------------------------------------------------------------------------------*/ 
 
-void calibrateSensors(){
-  
-  STEER_SERVO.writeMicroseconds(LEFT_TURN_OUT); //Calibrate angle sensors for left turn
-  delay(4000);
-  leftsenseleft = analogRead(A2);
-  rightsenseleft = analogRead(A3);
-  Serial.print("Left turn sensor readings: ");
-  Serial.print(leftsenseleft);
-  Serial.println(rightsenseleft);
-  
-  STEER_SERVO.writeMicroseconds(RIGHT_TURN_OUT); //Calibrate angle sensors for right turn
-  delay(4000);
-  leftsenseright = analogRead(A2);
-  rightsenseright = analogRead(A3);
-  Serial.print("Right turn sensor readings: ");
-  Serial.print(leftsenseright);
-  Serial.println(rightsenseright);
-}
